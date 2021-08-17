@@ -39,8 +39,7 @@ import { ContextMenu } from '../components/contextmenu'
 import { ThemeContext, ThemeContextProps } from '../util/themecontext'
 import SpriteText from 'three-spritetext'
 
-import ReconnectingWebSocket from 'reconnecting-websocket'
-
+import JethroNotes from './notes.json'
 // react-force-graph fails on import when server-rendered
 // https://github.com/vasturiano/react-force-graph/issues/155
 const ForceGraph2D = (
@@ -92,10 +91,10 @@ export function GraphPage() {
 
   const currentGraphDataRef = useRef<GraphData>({ nodes: [], links: [] })
 
-  const updateGraphData = (orgRoamGraphData: OrgRoamGraphReponse) => {
+  const updateGraphData = (orgRoamGraphData: any) => {
     const oldNodeById = nodeByIdRef.current
     tagsRef.current = orgRoamGraphData.tags ?? []
-    const nodesByFile = orgRoamGraphData.nodes.reduce<NodesByFile>((acc, node) => {
+    const nodesByFile = orgRoamGraphData.nodes.reduce((acc: any, node: any) => {
       return {
         ...acc,
         [node.file]: [...(acc[node.file] ?? []), node],
@@ -105,14 +104,14 @@ export function GraphPage() {
     const headingLinks: OrgRoamLink[] = Object.keys(nodesByFile).flatMap((file) => {
       const nodesInFile = nodesByFile[file] ?? []
       // "file node" as opposed to "heading node"
-      const fileNode = nodesInFile.find((node) => node.level === 0)
-      const headingNodes = nodesInFile.filter((node) => node.level !== 0)
+      const fileNode = nodesInFile.find((node: any) => node.level === 0)
+      const headingNodes = nodesInFile.filter((node: any) => node.level !== 0)
 
       if (!fileNode) {
         return []
       }
-      return headingNodes.map((headingNode) => {
-        const smallerHeadings = nodesInFile.filter((node) => {
+      return headingNodes.map((headingNode: any) => {
+        const smallerHeadings = nodesInFile.filter((node: any) => {
           if (
             node.level >= headingNode.level ||
             node.pos >= headingNode.pos ||
@@ -140,13 +139,13 @@ export function GraphPage() {
     const fileLinks: OrgRoamLink[] = Object.keys(nodesByFile).flatMap((file) => {
       const nodesInFile = nodesByFile[file] ?? []
       // "file node" as opposed to "heading node"
-      const fileNode = nodesInFile.find((node) => node.level === 0)
-      const headingNodes = nodesInFile.filter((node) => node.level !== 0)
+      const fileNode = nodesInFile.find((node: any) => node.level === 0)
+      const headingNodes = nodesInFile.filter((node: any) => node.level !== 0)
 
       if (!fileNode) {
         return []
       }
-      return headingNodes.map((headingNode) => {
+      return headingNodes.map((headingNode: any) => {
         return {
           source: headingNode.id,
           target: fileNode.id,
@@ -155,7 +154,9 @@ export function GraphPage() {
       })
     })
 
-    nodeByIdRef.current = Object.fromEntries(orgRoamGraphData.nodes.map((node) => [node.id, node]))
+    nodeByIdRef.current = Object.fromEntries(
+      orgRoamGraphData.nodes.map((node: any) => [node.id, node]),
+    )
     const dirtyLinks = [...orgRoamGraphData.links, ...headingLinks, ...fileLinks]
     const nonExistantNodes: OrgRoamNode[] = []
     const links = dirtyLinks.map((link) => {
@@ -217,6 +218,7 @@ export function GraphPage() {
       const orgRoamGraphDataClone = JSON.parse(JSON.stringify(orgRoamGraphDataProcessed))
       currentGraphDataRef.current = orgRoamGraphDataClone
       setGraphData(orgRoamGraphDataClone)
+      console.log(orgRoamGraphDataClone)
       return
     }
 
@@ -254,6 +256,11 @@ export function GraphPage() {
 
     setGraphData({ nodes: newNodes as NodeObject[], links: newerLinks })
   }
+
+  useEffect(() => {
+    updateGraphData(JethroNotes)
+  }, [])
+
   useEffect(() => {
     if (!graphData) {
       return
@@ -266,7 +273,6 @@ export function GraphPage() {
   const scopeRef = useRef<Scope>({ nodeIds: [] })
   const behaviorRef = useRef(initialBehavior)
   behaviorRef.current = behavior
-  const WebSocketRef = useRef<ReconnectingWebSocket | null>(null)
 
   scopeRef.current = scope
   const followBehavior = (
@@ -339,47 +345,6 @@ export function GraphPage() {
   }
 
   useEffect(() => {
-    // initialize websocket
-    WebSocketRef.current = new ReconnectingWebSocket('ws://localhost:35903')
-    WebSocketRef.current.addEventListener('open', () => {
-      console.log('Connection with Emacs established')
-    })
-    WebSocketRef.current.addEventListener('message', (event: any) => {
-      const bh = behaviorRef.current
-      const message = JSON.parse(event.data)
-      switch (message.type) {
-        case 'graphdata':
-          return updateGraphData(message.data)
-        case 'theme':
-          return setEmacsTheme(message.data)
-        case 'command':
-          switch (message.data.commandName) {
-            case 'local':
-              const speed = behavior.zoomSpeed
-              const padding = behavior.zoomPadding
-              followBehavior('local', message.data.id, speed, padding)
-              setEmacsNodeId(message.data.id)
-              break
-            case 'zoom': {
-              const speed = message?.data?.speed || bh.zoomSpeed
-              const padding = message?.data?.padding || bh.zoomPadding
-              followBehavior('zoom', message.data.id, speed, padding)
-              setEmacsNodeId(message.data.id)
-              break
-            }
-            case 'follow': {
-              followBehavior(bh.follow, message.data.id, bh.zoomSpeed, bh.zoomPadding)
-              setEmacsNodeId(message.data.id)
-              break
-            }
-            default:
-              return console.error('unknown message type', message.type)
-          }
-      }
-    })
-  }, [])
-
-  useEffect(() => {
     const fg = graphRef.current
     if (!fg || scope.nodeIds.length > 1) {
       return
@@ -423,7 +388,6 @@ export function GraphPage() {
           ref={graphRef}
           nodeById={nodeByIdRef.current!}
           linksByNodeId={linksByNodeIdRef.current!}
-          webSocket={WebSocketRef.current}
           {...{
             physics,
             graphData,
@@ -456,7 +420,6 @@ export interface GraphProps {
   mouse: typeof initialMouse
   scope: Scope
   setScope: any
-  webSocket: any
   tagColors: { [tag: string]: string }
 }
 
@@ -474,7 +437,6 @@ export const Graph = forwardRef(function (props: GraphProps, graphRef: any) {
     mouse,
     scope,
     setScope,
-    webSocket,
     tagColors,
   } = props
 
@@ -507,9 +469,7 @@ export const Graph = forwardRef(function (props: GraphProps, graphRef: any) {
     return
   }
 
-  const sendMessageToEmacs = (command: string, data: {}) => {
-    webSocket.send(JSON.stringify({ command: command, data: data }))
-  }
+  const sendMessageToEmacs = (command: string, data: {}) => {}
   const openNodeInEmacs = (node: OrgRoamNode) => {
     sendMessageToEmacs('open', { id: node.id })
   }
