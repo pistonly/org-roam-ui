@@ -475,5 +475,26 @@ Optionally with ID (string), SPEED (number, ms) and PADDING (number, px)."
   (interactive)
   (websocket-send-text oru-ws (json-encode `((type . "theme") (data . ,(org-roam-ui--update-theme))))))
 
+
+;;; added by liuyang
+(defun db-operation-ly ()
+  (interactive)
+  (setq relation (read-string "(i)intersection, (u) union" "i"))
+  (setq tags (read-string "input tags"))
+  (setq exclude_tags (read-string "input exclude tags, separate by ," "''"))
+  (setq exclude_refs (read-string "input exclude tags, separate by ," "''"))
+  (setq pythonpath (format "%s%s" (string-remove-suffix "." org-roam-ui/root-dir) "db_operation.py"))
+  (setq shellcmd (format "%s %s %s %s %s %s %s %s %s %s" "python" pythonpath "--relation" relation "--tags" tags "--exclude_tags" exclude_tags "--exclude_refs" exclude_refs))
+  (message "%s" shellcmd)
+  (message "%s" (shell-command-to-string shellcmd)))
+
+(defun db-operation-from-kill-ly ()
+  (interactive)
+  (setq pythonpath (format "%s%s" (string-remove-suffix "." org-roam-ui/root-dir) "db_operation.py"))
+  (setq shellcmd (format "%s %s %s" "python" pythonpath pythonargs))
+  (message "%s" shellcmd)
+  (message "%s" (shell-command-to-string shellcmd)))
+
+(string-remove-suffix "." "test.")
 (provide 'org-roam-ui)
 ;;; org-roam-ui.el ends here
