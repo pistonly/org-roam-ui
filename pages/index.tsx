@@ -38,7 +38,7 @@ import { ContextMenu } from '../components/contextmenu'
 
 import { ThemeContext, ThemeContextProps } from '../util/themecontext'
 import SpriteText from 'three-spritetext'
-
+import wrap from 'word-wrap'
 import ReconnectingWebSocket from 'reconnecting-websocket'
 
 // react-force-graph fails on import when server-rendered
@@ -95,7 +95,9 @@ export function GraphPage() {
   const updateGraphData = (orgRoamGraphData: OrgRoamGraphReponse) => {
     const oldNodeById = nodeByIdRef.current
     tagsRef.current = orgRoamGraphData.tags ?? []
-    const nodesByFile = orgRoamGraphData.nodes.reduce<NodesByFile>((acc, node) => {
+    const importNodes = orgRoamGraphData.nodes ?? []
+    const importLinks = orgRoamGraphData.links ?? []
+    const nodesByFile = importNodes.reduce<NodesByFile>((acc, node) => {
       return {
         ...acc,
         [node.file]: [...(acc[node.file] ?? []), node],
@@ -116,15 +118,21 @@ export function GraphPage() {
           if (
             node.level >= headingNode.level ||
             node.pos >= headingNode.pos ||
-            !headingNode.olp?.includes(node.title) ||
-            node.level >= headingNode.level - headingNode.olp.reverse().indexOf(node.title)
+            !headingNode.olp?.includes(node.title) //||
+            //  node.level >= headingNode.level - headingNode.olp.reverse().indexOf(node.title)
           ) {
             return false
           }
           return true
         })
 
-        const target = smallerHeadings.slice(-1)[0]
+        // get the nearest heading
+        const target = smallerHeadings.reduce((acc, node) => {
+          if (node.level > acc.level) {
+            acc = node
+          }
+          return acc
+        }, fileNode)
 
         return {
           source: headingNode.id,
@@ -155,8 +163,8 @@ export function GraphPage() {
       })
     })
 
-    nodeByIdRef.current = Object.fromEntries(orgRoamGraphData.nodes.map((node) => [node.id, node]))
-    const dirtyLinks = [...orgRoamGraphData.links, ...headingLinks, ...fileLinks]
+    nodeByIdRef.current = Object.fromEntries(importNodes.map((node) => [node.id, node]))
+    const dirtyLinks = [...importLinks, ...headingLinks, ...fileLinks]
     const nonExistantNodes: OrgRoamNode[] = []
     const links = dirtyLinks.map((link) => {
       const sourceId = link.source as string
@@ -203,7 +211,7 @@ export function GraphPage() {
       }
     }, {})
 
-    const nodes = [...orgRoamGraphData.nodes, ...nonExistantNodes]
+    const nodes = [...importNodes, ...nonExistantNodes]
     const orgRoamGraphDataProcessed = {
       nodes,
       links,
@@ -557,7 +565,7 @@ export const Graph = forwardRef(function (props: GraphProps, graphRef: any) {
     const completed = [ids[0]]
     Array.from({ length: n }, () => {
       queue.forEach((node) => {
-        const links = linksByNodeId[node as string] ?? []
+        const links = filteredLinksByNodeIdRef.current[node as string] ?? []
         links.forEach((link) => {
           const [sourceId, targetId] = normalizeLinkEnds(link)
           if (!completed.includes(sourceId)) {
@@ -654,7 +662,10 @@ export const Graph = forwardRef(function (props: GraphProps, graphRef: any) {
       if (!filter.parent) {
         return !['parent', 'heading'].includes(linkRoam.type)
       }
-      return linkRoam.type !== ['parent', 'heading'].find((type) => type !== filter.parent)
+      if (filter.parent === 'heading') {
+        return linkRoam.type !== 'parent'
+      }
+      return linkRoam.type !== 'heading'
     })
 
     filteredLinksByNodeIdRef.current = filteredLinks.reduce<LinksByNodeId>((acc, linkArg) => {
@@ -685,7 +696,7 @@ export const Graph = forwardRef(function (props: GraphProps, graphRef: any) {
           if (oldScopedNodeIds.includes(node.id as string)) {
             return false
           }
-          const links = linksByNodeId[node.id as string] ?? []
+          const links = filteredLinksByNodeIdRef.current[node.id as string] ?? []
           return links.some((link) => {
             return scope.nodeIds.includes(link.source) || scope.nodeIds.includes(link.target)
           })
@@ -737,14 +748,13 @@ export const Graph = forwardRef(function (props: GraphProps, graphRef: any) {
     if (!links) {
       return {}
     }
-
     return Object.fromEntries(
       [
         centralHighlightedNode.current.id! as string,
         ...links.flatMap((link) => [link.source, link.target]),
       ].map((nodeId) => [nodeId, {}]),
     )
-  }, [centralHighlightedNode.current, linksByNodeId])
+  }, [centralHighlightedNode.current, filteredLinksByNodeIdRef.current])
 
   useEffect(() => {
     ;(async () => {
@@ -832,15 +842,19 @@ export const Graph = forwardRef(function (props: GraphProps, graphRef: any) {
     )
   }, [emacsTheme])
 
+  // FIXME: Somehow the "linksByNodeId" call causes parent nodes to be always highlighted
+  // Replacing this with "linksByNodeIdRef.current" should solve this, but instead leads to no
+  // highlighting whatsoever.
   const previouslyHighlightedNodes = useMemo(() => {
-    const previouslyHighlightedLinks = linksByNodeId[lastHoverNode.current?.id!] ?? []
+    const previouslyHighlightedLinks =
+      filteredLinksByNodeIdRef.current[lastHoverNode.current?.id!] ?? []
     return Object.fromEntries(
       [
         lastHoverNode.current?.id! as string,
-        ...previouslyHighlightedLinks.flatMap((link) => [link.source, link.target]),
+        ...previouslyHighlightedLinks.flatMap((link) => normalizeLinkEnds(link)),
       ].map((nodeId) => [nodeId, {}]),
     )
-  }, [JSON.stringify(hoverNode), lastHoverNode.current])
+  }, [JSON.stringify(hoverNode), lastHoverNode.current, filteredLinksByNodeIdRef.current])
 
   const getNodeColorById = (id: string) => {
     const linklen = filteredLinksByNodeIdRef.current[id!]?.length ?? 0
@@ -955,19 +969,21 @@ export const Graph = forwardRef(function (props: GraphProps, graphRef: any) {
 
   const [dragging, setDragging] = useState(false)
 
+  const [zoom, setZoom] = useState(1)
   const graphCommonProps: ComponentPropsWithoutRef<typeof TForceGraph2D> = {
     graphData: scope.nodeIds.length ? scopedGraphData : filteredGraphData,
     width: windowWidth,
     height: windowHeight,
     backgroundColor: theme.colors.gray[visuals.backgroundColor],
     warmupTicks: scope.nodeIds.length === 1 ? 100 : scope.nodeIds.length > 1 ? 20 : 0,
+    onZoom: ({ k, x, y }) => setZoom(k),
     nodeLabel: (node) => (node as OrgRoamNode).title,
     nodeColor: (node) => {
       return getNodeColor(node as OrgRoamNode)
     },
     nodeRelSize: visuals.nodeRel,
     nodeVal: (node) => {
-      return nodeSize(node)
+      return nodeSize(node) / Math.pow(zoom, visuals.nodeZoomSize)
     },
     nodeCanvasObject: (node, ctx, globalScale) => {
       if (!node) {
@@ -991,10 +1007,7 @@ export const Graph = forwardRef(function (props: GraphProps, graphRef: any) {
       }
 
       const nodeTitle = (node as OrgRoamNode).title!
-      const label =
-        nodeTitle.length > visuals.labelLength
-          ? nodeTitle.substring(0, visuals.labelLength) + '...'
-          : nodeTitle
+      const label = nodeTitle.substring(0, visuals.labelLength)
       const fontSize = visuals.labelFontSize / (0.75 * Math.min(Math.max(0.5, globalScale), 3))
       const textWidth = ctx.measureText(label).width
       const bckgDimensions = [textWidth * 1.1, fontSize].map((n) => n + fontSize * 0.5) as [
@@ -1035,7 +1048,15 @@ export const Graph = forwardRef(function (props: GraphProps, graphRef: any) {
       const labelText = hexToRGBA(labelTextColor, textOpacity)
       ctx.fillStyle = labelText
       ctx.font = `${fontSize}px Sans-Serif`
-      ctx.fillText(label, node.x!, node.y! + nodeS)
+      const wordsArray = wrap(label, { width: visuals.labelWordWrap }).split('\n')
+
+      const truncatedWords =
+        nodeTitle.length > visuals.labelLength
+          ? [...wordsArray.slice(0, -1), `${wordsArray.slice(-1)}...`]
+          : wordsArray
+      truncatedWords.forEach((word, index) => {
+        ctx.fillText(word, node.x!, node.y! + nodeS + visuals.labelLineSpace * fontSize * index)
+      })
     },
     nodeCanvasObjectMode: () => 'after',
 

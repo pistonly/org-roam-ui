@@ -133,6 +133,10 @@ Defaults to #'browse-url."
 (defvar oru-ws nil
   "The websocket for org-roam-ui.")
 
+(defvar org-roam-ui--window nil
+  "The window for displaying nodes opened from within ORUI.
+This is mostly to prevent issues with EXWM and the Webkit browser.")
+
 ;; (defvar org-roam-ui-ws nil
 ;;   "The websocket server for org-roam-ui.")
 
@@ -175,9 +179,20 @@ This serves the web-build and API over HTTP."
                              (command (alist-get 'command msg))
                              (data (alist-get 'data msg)))
                 (cond ((string= command "open")
-                    (org-roam-node-visit
-                        (org-roam-populate (org-roam-node-create
-                        :id (alist-get 'id data)))))
+                       (let* ((node (org-roam-populate (org-roam-node-create
+                                :id (alist-get 'id data))))
+                             (pos (org-roam-node-point node))
+                             (buf (org-roam-node-find-noselect node)))
+                         (unless (window-live-p org-roam-ui--window)
+                           (if-let ((windows (window-list))
+                                  (or-windows (seq-filter (lambda (window) (org-roam-buffer-p (window-buffer window))) windows))
+                                  (newest-window (car (seq-sort-by #'window-use-time #'> or-windows))))
+                             (setq org-roam-ui--window newest-window)
+                           (split-window-horizontally)
+                           (setq org-roam-ui--window (frame-selected-window))))
+                        (set-window-buffer org-roam-ui--window buf)
+                        (select-window org-roam-ui--window)
+                        (goto-char pos)))
                       ((string= command "delete")
                        (progn
                        (message "Deleted %s" (alist-get 'file data))

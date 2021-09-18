@@ -61,6 +61,8 @@ export const initialVisuals = {
   labelScale: 1.5,
   labelFontSize: 13,
   labelLength: 40,
+  labelWordWrap: 25,
+  labelLineSpace: 1,
   highlight: true,
   highlightNodeSize: 2,
   highlightLinkSize: 2,
@@ -101,6 +103,7 @@ export const initialVisuals = {
   refLinkHighlightColor: '',
   refNodeColor: 'black',
   nodeSizeLinks: 0.5,
+  nodeZoomSize: 1.3,
 }
 
 export interface TagColors {
